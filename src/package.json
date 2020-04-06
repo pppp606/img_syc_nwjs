@@ -1,0 +1,22 @@
+{
+  "name": "img_sync",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.html",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "nw --enable-logging=stderr",
+    "build": "nwbuild -p win64,osx64 -o build/ src/"
+  },
+  "window": {
+    "resizable": true,
+    "show_in_taskbar": true,
+    "width": 600,
+    "height": 700
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "jimp": "^0.9.6"
+  }
+}

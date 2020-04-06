@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title></title>
+<script src="lib/fabric.min.js"></script>
+<script src="lib/sweetalert.min.js"></script>
+<link rel="stylesheet" media="all" href="style.css" />
+</head>
+<body>
+
+<div id="main-canvas" class="mb-3">
+  <canvas id="c" width="500" height="500"></canvas>
+</div>
+
+<div id="step0">
+  <input id="inputGroupFile" type="file" name="upfile[]" webkitdirectory class="d-none">
+  <label class="btn btn-outline-primary btn-block" for="inputGroupFile">step1. フォルダを選択</label>
+</div>
+
+<div id="step1" class="d-none">
+  <input type="file" class="d-none" id="inputGroupBadge" />
+  <label class="btn btn-outline-primary btn-block" for="inputGroupBadge">step2. バッジ画像を選択</label>
+</div>
+
+<div id="step2" class="d-none">
+  <button id="saveBtn" type="button" class="btn btn-primary btn-block">step3. 位置を決定して出力</button>
+</div>
+
+<div id="step3" class="d-none">
+  <div class="sk-folding-cube" v-if="isLoading">
+    <div class="sk-cube1 sk-cube"></div>
+    <div class="sk-cube2 sk-cube"></div>
+    <div class="sk-cube4 sk-cube"></div>
+    <div class="sk-cube3 sk-cube"></div>
+  </div>
+</div>
+
+<div id="footer">
+  <button id="resetBtn" type="button" class="btn btn-outline-success btn-block mt-3">リセット</button>
+</div>
+
+<script>
+  const Jimp = require("jimp");
+  const Path = require('path');
+  const Dir = Path.dirname(process.execPath);
+
+  let step = 0;
+  let canvas;
+  let canvasSize = {
+    Max: 500,
+    width: 500,
+    height:500
+  }
+  let batchPostion = {
+    top:0,
+    left:0,
+    scale:1,
+    ratio:{
+      top:0,
+      left:0,
+      width:0,
+      height:0
+    }
+  }
+  let files = [];
+  let badge;
+  let fixImageLength = 0;
+
+  function nextStep() {
+    step++;
+    switch (step) {
+      case 0:
+        document.getElementById("step0").classList.remove("d-none");
+        document.getElementById("footer").classList.remove("d-none");
+        document.getElementById("main-canvas").classList.remove("d-none");
+        document.getElementById("step1").classList.add("d-none");
+        document.getElementById("step2").classList.add("d-none");
+        document.getElementById("step3").classList.add("d-none");
+        break;
+      case 1:
+        document.getElementById("step0").classList.add("d-none");
+        document.getElementById("step1").classList.remove("d-none");
+        break;
+      case 2:
+        document.getElementById("step1").classList.add("d-none");
+        document.getElementById("step2").classList.remove("d-none");
+        break;
+      case 3:
+        document.getElementById("main-canvas").classList.add("d-none");
+        document.getElementById("step2").classList.add("d-none");
+        document.getElementById("step3").classList.remove("d-none");
+        document.getElementById("footer").classList.add("d-none");
+        break;
+    }
+  }
+
+  function initCanvas(){
+    canvas = new fabric.Canvas('c');
+    canvas.on('object:modified', function (e) {
+      let activeObjects = canvas.getActiveObjects();
+      if ((activeObjects) && (activeObjects.length == 1)) {
+        let activeObject = activeObjects[0];
+        batchPostion.left = activeObject.left;
+        batchPostion.right = canvasSize.width - activeObject.left - activeObject.width * activeObject.scaleX;
+        batchPostion.top = activeObject.top;
+        batchPostion.bottom = canvasSize.height - activeObject.top - activeObject.height * activeObject.scaleY;
+        batchPostion.width = activeObject.scaleX * activeObject.width;
+        batchPostion.height = activeObject.scaleX * activeObject.height;
+      }
+    });
+  }
+  initCanvas();
+  
+  document.getElementById('inputGroupFile').addEventListener('change', ev => {
+    for (let i = 0; i < ev.target.files.length; i++) {
+      let item = ev.target.files[i];
+      if (item.type.indexOf('image') == 0) {
+        files.push(item);
+      }
+    }
+    drawBackgroundImage(files[0]);
+    nextStep();
+  });
+
+  document.getElementById('inputGroupBadge').addEventListener('change', ev => {
+    drawBadgeImage(ev.target.files[0]);
+    Jimp.read(ev.target.files[0].path, (err, lenna) => {
+      badge = lenna;
+    });
+    nextStep();
+  });
+
+  document.getElementById('saveBtn').addEventListener('click', ev => {
+    batchPostion.ratio = {
+      top: batchPostion.top / canvasSize.height,
+      bottom: batchPostion.bottom / canvasSize.height,
+      left: batchPostion.left / canvasSize.width,
+      right: batchPostion.right / canvasSize.height,
+      width: batchPostion.width / canvasSize.width,
+      height: batchPostion.height / canvasSize.height //背景画像に対する比率
+    }
+    nextStep();
+    imgOutput();
+  });
+  
+  document.getElementById('resetBtn').addEventListener('click', ev => {
+    reset();
+  });
+
+  function imgOutput(){
+    for (let index = 0; index < files.length; index++) {
+      const outPath = files[index].webkitRelativePath;
+      Jimp.read(files[index].path, (err, lenna) => {
+        if (err) throw err;
+        let copyBadge = badge.clone();
+        let batchScaleWidth = (lenna.bitmap.width * batchPostion.ratio.width) / copyBadge.bitmap.width;
+        let batchScaleHeight = (lenna.bitmap.height * batchPostion.ratio.height) / copyBadge.bitmap.height;        
+        copyBadge.scale(Math.min(batchScaleWidth, batchScaleHeight));
+
+        // 左右外側に近い方からの距離
+        let batchLeft = lenna.bitmap.width * batchPostion.ratio.left;
+        if (batchPostion.ratio.left > batchPostion.ratio.right) {
+          batchLeft = lenna.bitmap.width - (lenna.bitmap.width * batchPostion.ratio.right) - copyBadge.bitmap.width;
+        }
+        // 上下外側に近い方からの距離
+        let batchTop = lenna.bitmap.height * batchPostion.ratio.top;
+        if(batchPostion.ratio.top > batchPostion.ratio.bottom){
+          batchTop = lenna.bitmap.height - (lenna.bitmap.height * batchPostion.ratio.bottom) - copyBadge.bitmap.height;
+        }        
+        lenna
+          .composite(copyBadge, batchLeft, batchTop)
+          .write(`${Dir}/out/${outPath}`)
+          .getBase64(Jimp.AUTO, (err, src) => {
+            fixImageLength++
+            if (fixImageLength == files.length) {
+              swal({
+                title: "画像加工が終了しました。",
+                icon: "success",
+              });
+              reset();
+            }
+          });
+      });
+    }
+  }
+
+  function reset(){
+    step = -1;
+    nextStep();
+    canvas.clear();
+    document.getElementById('inputGroupFile').value = '';
+    document.getElementById('inputGroupBadge').value = '';
+    files = [];
+    fixImageLength = 0;
+  }
+
+  async function drawBadgeImage(imgFile) {
+    let blobUrl = window.URL.createObjectURL(imgFile);
+    fabric.Image.fromURL(blobUrl, function (oImg) {
+      oImg.scale(0.4);
+      oImg.set({
+        hasRotatingPoint: false
+      });
+      canvas.add(oImg);
+    });
+  }
+
+  function loadImage(blobImg) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = (e) => reject(e);
+      img.src = blobImg;
+    });
+  }
+
+  async function drawBackgroundImage(imgFile) {
+    let blobUrl = window.URL.createObjectURL(imgFile);
+    let imgElement = await loadImage(blobUrl).catch(e => {
+      console.log("onload error", e);
+    });
+
+    let scaleFactor = 1;
+    let imgWidth = imgElement.naturalWidth;
+    let imgHeight = imgElement.naturalHeight;
+    if(Math.max(imgWidth, imgHeight) > canvasSize.Max){
+      if (imgWidth >= imgHeight) {
+        scaleFactor = canvasSize.Max / imgWidth;
+      } else {
+        scaleFactor = canvasSize.Max / imgHeight;
+      }
+    }
+    canvasSize.width = imgWidth * scaleFactor;
+    canvasSize.height = imgHeight * scaleFactor
+    canvas.setWidth(canvasSize.width);
+    canvas.setHeight(canvasSize.height);
+    canvas.setBackgroundImage(blobUrl, canvas.renderAll.bind(canvas), {
+      backgroundImageOpacity: 0,
+      backgroundImageStretch: false,
+      originX: "left",
+      originY: "top",
+      scaleX: scaleFactor,
+      scaleY: scaleFactor,
+      angle: 0
+    });
+  }
+</script>
+</body>
+</html>
